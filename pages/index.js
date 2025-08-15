@@ -1,69 +1,77 @@
-﻿import Head from "next/head";
-import ProductCard from "../components/ProductCard";
+// pages/index.js
+import ProductCard from '../components/ProductCard';
+import prisma, { ensureDb } from '../lib/prisma';
 
-const products = [
-  {
-    name: "Credenza Antica",
-    price: 1200,
-    location: "Firenze",
-    image: "https://via.placeholder.com/400x300?text=Credenza+Antica",
-  },
-  {
-    name: "Specchio Barocco",
-    price: 850,
-    location: "Roma",
-    image: "https://via.placeholder.com/400x300?text=Specchio+Barocco",
-  },
-  {
-    name: "Lampadario in vetro di Murano",
-    price: 2100,
-    location: "Venezia",
-    image: "https://via.placeholder.com/400x300?text=Lampadario+Murano",
-  },
-  {
-    name: "Tavolino in noce",
-    price: 450,
-    location: "Torino",
-    image: "https://via.placeholder.com/400x300?text=Tavolino+in+Noce",
-  },
-];
+// Formatter deterministico lato server (no sorprese ICU)
+function formatEuro(amount) {
+  const n = Number(amount);
+  if (!Number.isFinite(n)) return '—';
+  const [intPartRaw, decRaw] = n.toFixed(2).split('.');
+  const int = intPartRaw.replace(/\B(?=(\d{3})+(?!\d))/g, '.'); // separatore migliaia con punto
+  return `${int},${decRaw} €`;
+}
 
-export default function Home() {
+// Helper retry per gestire cold start/pgBouncer
+async function withRetry(fn, retries = 2, delay = 600) {
+  try {
+    return await fn();
+  } catch (e) {
+    if (retries <= 0) throw e;
+    await new Promise((r) => setTimeout(r, delay));
+    return withRetry(fn, retries - 1, delay);
+  }
+}
+
+export default function Home({ products }) {
   return (
-    <>
-      <Head>
-        <title>Sasaan Piz – Marketplace per antiquari e collezionisti</title>
-        <meta
-          name="description"
-          content="Sasaan Piz: compra e vendi oggetti d'antiquariato in tutta Italia."
-        />
-      </Head>
+    <main className="mx-auto max-w-6xl px-4 py-8">
+      <h1 className="mb-6 text-2xl font-bold">Sasaan Piz – Prodotti</h1>
 
-      <div className="max-w-6xl mx-auto px-4 py-8">
-        <header className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-8 gap-4">
-          <div>
-            <h1 className="text-3xl font-bold">Sasaan Piz</h1>
-            <p className="text-gray-600">
-              Marketplace per antiquari e collezionisti
-            </p>
-          </div>
-          <div className="flex gap-2">
-            <input
-              placeholder="Cerca oggetto o città"
-              className="border p-2 rounded w-full sm:w-64"
-            />
-            <button className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700">
-              Cerca
-            </button>
-          </div>
-        </header>
-
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-          {products.map((p) => (
-            <ProductCard key={p.name} product={p} />
-          ))}
-        </div>
+      <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
+        {products?.map((p) => (
+          <ProductCard key={p.id} product={p} />
+        ))}
       </div>
-    </>
+
+      {(!products || products.length === 0) && (
+        <p className="mt-10 text-sm text-gray-500">Nessun prodotto disponibile.</p>
+      )}
+    </main>
   );
+}
+
+export async function getServerSideProps() {
+  // 1) Assicura la connessione (gestisce cold start)
+  await ensureDb();
+
+  // 2) Query con retry (gestisce risvegli lenti di Neon)
+  const raw = await withRetry(() =>
+    prisma.product.findMany({
+      select: {
+        id: true,
+        title: true,
+        city: true,
+        price: true,
+        createdAt: true,
+      },
+      orderBy: { createdAt: 'desc' },
+    })
+  );
+
+  // 3) Serializza e prepara i dati per il client
+  const products = raw.map((p) => {
+    const priceNumber =
+      typeof p.price === 'object' ? Number(p.price?.toString?.()) : Number(p.price);
+
+    return {
+      id: p.id,
+      title: p.title ?? '',
+      city: p.city ?? '',
+      price: priceNumber, // mantieni numerico se ti serve altrove
+      formattedPrice: formatEuro(priceNumber), // ← stringa pronta per il client
+      createdAt: p.createdAt?.toISOString?.() ?? null,
+    };
+  });
+
+  return { props: { products } };
 }

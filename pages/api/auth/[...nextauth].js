@@ -1,51 +1,56 @@
-﻿import NextAuth from "next-auth";
-import Credentials from "next-auth/providers/credentials";
-import { PrismaClient } from "@prisma/client";
-import bcrypt from "bcrypt";
-
-const prisma = globalThis._prisma ?? new PrismaClient();
-if (process.env.NODE_ENV !== "production") globalThis._prisma = prisma;
+// pages/api/auth/[...nextauth].js
+import NextAuth from 'next-auth';
+import Credentials from 'next-auth/providers/credentials';
+// import prisma from '../../../lib/prisma'; // Se vuoi abilitare login da DB in futuro
 
 export const authOptions = {
-  session: { strategy: "jwt" },
+  session: { strategy: 'jwt', maxAge: 60 * 60 * 24 * 7 }, // 7 giorni
+  secret: process.env.NEXTAUTH_SECRET, // assicurati di averlo in .env
   providers: [
     Credentials({
-      name: "Email e password",
+      name: 'Credentials',
       credentials: {
-        email: { label: "Email", type: "email" },
-        password: { label: "Password", type: "password" },
+        email: { label: 'Email', type: 'email' },
+        password: { label: 'Password', type: 'password' },
       },
       async authorize(credentials) {
-        if (!credentials?.email || !credentials?.password) return null;
+        const { email, password } = credentials || {};
 
-        const user = await prisma.user.findUnique({
-          where: { email: credentials.email },
-        });
-        if (!user) return null;
+        // --- DEMO SELLER ---
+        if (email === 'demo@antiquariato.it' && password === 'demo1234') {
+          return { id: 'demo-id', email, role: 'SELLER' };
+        }
 
-        const ok = await bcrypt.compare(credentials.password, user.password);
-        if (!ok) return null;
+        // --- Esempio per attivare login da DB (commentato) ---
+        // const user = await prisma.user.findUnique({ where: { email } });
+        // if (!user) return null;
+        // const ok = await verifyPassword(password, user.passwordHash); // implementa tu
+        // if (!ok) return null;
+        // return { id: user.id, email: user.email, role: user.role || 'BUYER' };
 
-        return { id: user.id.toString(), email: user.email, role: user.role };
+        return null;
       },
     }),
   ],
   callbacks: {
     async jwt({ token, user }) {
       if (user) {
-        token.id = user.id;
-        token.role = user.role;
+        token.id = user.id ?? token.id;
+        token.role = user.role ?? token.role ?? 'BUYER';
+        token.email = user.email ?? token.email;
       }
       return token;
     },
     async session({ session, token }) {
-      if (token && session.user) {
-        session.user.id = token.id;
-        session.user.role = token.role;
-      }
+      session.user = session.user || {};
+      session.user.id = token.id;
+      session.user.role = token.role;
+      session.user.email = token.email;
       return session;
     },
   },
+  pages: {
+    signIn: '/auth/signin',
+  },
 };
-
 export default NextAuth(authOptions);

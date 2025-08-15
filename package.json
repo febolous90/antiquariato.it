@@ -2,18 +2,24 @@
   "name": "antiquariato-it",
   "version": "1.0.0",
   "private": true,
+  "prisma": {
+    "seed": "node prisma/seed.js"
+  },
   "scripts": {
     "dev": "next dev",
     "build": "next build",
     "start": "next start"
   },
   "dependencies": {
+    "@hookform/resolvers": "^5.2.1",
     "@prisma/client": "^6.13.0",
     "bcrypt": "^6.0.0",
     "next": "13.4.12",
     "next-auth": "^4.24.11",
     "react": "18.2.0",
-    "react-dom": "18.2.0"
+    "react-dom": "18.2.0",
+    "react-hook-form": "^7.62.0",
+    "zod": "^4.0.17"
   },
   "devDependencies": {
     "autoprefixer": "^10.4.14",
